@@ -503,11 +503,32 @@ with tab_scrape:
             prog=st.progress(0,"준비 중...")
             log_container=st.empty()
 
+            def _safe_float(v, default=0.0):
+                import math, re
+                try:
+                    if v is None: return default
+                    s = str(v).strip().replace(",","")  # 1,500,000 -> 1500000
+                    if s in ("","nan","None","NaN","<NA>"): return default
+                    # 숫자 앞 통화기호 제거 (¥, $, ₩)
+                    s = re.sub(r'^[¥$₩]', '', s)
+                    f = float(s)
+                    return default if (math.isnan(f) or math.isinf(f)) else f
+                except Exception:
+                    return default
+
+            def _safe_str(v, default=""):
+                try:
+                    import pandas as _pd
+                    if v is None or (hasattr(_pd, 'isna') and _pd.isna(v)): return default
+                    return str(v).strip()
+                except Exception:
+                    return default
+
             for i,row in df_kol.iterrows():
-                name=str(row.get("KOL명","") or f"KOL {i+1}")
-                url=str(row.get("URL (필수)",""))
-                cost=float(row.get("캐스팅 비용(JPY)",0) or 0)
-                stated=str(row.get("플랫폼","") or "")
+                name=_safe_str(row.get("KOL명","")) or f"KOL {i+1}"
+                url=_safe_str(row.get("URL (필수)",""))
+                cost=_safe_float(row.get("캐스팅 비용(JPY)"), 0.0)
+                stated=_safe_str(row.get("플랫폼",""))
                 # 플랫폼 결정: stated 우선, 없으면 URL 자동감지
                 if stated and stated not in ["","자동감지"]:
                     plat=plat_to_key(stated)
