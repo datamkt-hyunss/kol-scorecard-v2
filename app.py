@@ -569,13 +569,56 @@ with tab_scrape:
                         data={"error":str(e),"posts_scraped":0}
 
                 if data.get("error"):
-                    st.warning(f"[{name}] {data['error']}")
+                    # 에러 메시지 줄바꿈 처리해서 보기 좋게
+                    err_msg = data['error'].replace("\n","  \n")
+                    st.warning(f"**{name}** 수집 실패\n{err_msg}")
 
-                scraped_raw[plat].append({"name":name,"cost_jpy":cost,**data})
+                scraped_raw[plat].append({"name":name,"cost_jpy":cost,"plat":plat,**data})
                 prog.progress((i+1)/total_n, f"완료: {name}")
 
             prog.progress(1.0,"스크래핑 완료!")
             log_container.empty()
+
+            # 실패 목록 수집
+            failed_kols = [d for d in sum(scraped_raw.values(),[]) if d.get("error")]
+            if failed_kols:
+                st.error(f"**{len(failed_kols)}명 수집 실패** — 아래 표에 직접 데이터를 입력하면 평가할 수 있습니다.")
+                # 실패한 KOL 수동입력 폼
+                with st.expander(f"실패한 KOL 수동 데이터 입력 ({len(failed_kols)}명)", expanded=True):
+                    st.caption("TikTok 앱/웹에서 직접 확인한 수치를 입력하세요. 입력 후 '실패 KOL 평가 추가' 버튼을 클릭하세요.")
+                    if "failed_manual" not in st.session_state:
+                        st.session_state.failed_manual = {}
+                    for fd in failed_kols:
+                        fname = fd["name"]; fplat = fd.get("plat","tiktok"); fcost = fd.get("cost_jpy",0)
+                        st.markdown(f"**{fname}** (비용: ¥{int(fcost):,})")
+                        fm_key = f"fm_{fname}"
+                        if fplat=="tiktok":
+                            fc1,fc2,fc3,fc4,fc5=st.columns(5)
+                            fv=fc1.number_input("조회수",0,key=f"{fm_key}_v")
+                            fl=fc2.number_input("좋아요",0,key=f"{fm_key}_l")
+                            fco=fc3.number_input("댓글",0,key=f"{fm_key}_c")
+                            fs=fc4.number_input("저장",0,key=f"{fm_key}_s")
+                            fsh=fc5.number_input("공유",0,key=f"{fm_key}_sh")
+                            st.session_state.failed_manual[fname]={
+                                "name":fname,"cost_jpy":fcost,"plat":fplat,
+                                "views":fv,"likes":fl,"comments":fco,"saves":fs,"shares":fsh}
+                        else:
+                            fc1,fc2=st.columns(2)
+                            fl=fc1.number_input("좋아요",0,key=f"{fm_key}_l")
+                            fco=fc2.number_input("댓글",0,key=f"{fm_key}_c")
+                            st.session_state.failed_manual[fname]={
+                                "name":fname,"cost_jpy":fcost,"plat":fplat,
+                                "likes":fl,"comments":fco}
+                        st.divider()
+                    if st.button("실패 KOL 평가 추가", type="primary", use_container_width=True):
+                        for fname,fdata in st.session_state.failed_manual.items():
+                            fp=fdata.get("plat","tiktok")
+                            if fp=="tiktok" and fdata.get("views",0)>0:
+                                scraped_raw["tiktok"].append({**fdata,"error":None})
+                            elif fp in ("ig_feed","ig_reels") and (fdata.get("likes",0)+fdata.get("comments",0))>0:
+                                scraped_raw[fp].append({**fdata,"error":None})
+                        st.session_state.failed_manual={}
+                        st.success("수동 데이터가 추가되었습니다.")
 
             # 평가
             for plat,raw_list in scraped_raw.items():
@@ -589,7 +632,7 @@ with tab_scrape:
                     eval_plat="ig_feed"
                 else:
                     filt=[d for d in valid if d.get("views",0)>0]
-                    eval_plat="tiktok"  # YouTube는 CPV 단일 지표
+                    eval_plat="tiktok"
                 if filt:
                     results_by_platform[plat]=evaluate_batch(filt, eval_plat)
 
